@@ -1,0 +1,22 @@
+# transformers 5.x breaks the vendored SAM copy in dam_sam/modeling_sam_conv_lora.py:
+# v5 changed _tied_weights_keys from a list to a dict and post_init() then raises
+# AttributeError: 'list' object has no attribute 'keys'. Keep this pin.
+transformers>=4.40,<5
+
+# Pinned to the CUDA 13 build used for the reported results (Grace-Blackwell, sm_121).
+# On other hardware install the matching torch/torchvision wheels from pytorch.org instead.
+torch==2.13.0
+torchvision==0.28.0
+
+numpy>=2.0
+pillow>=11
+scipy>=1.15
+pandas>=2.2
+tqdm>=4.66
+scikit-image>=0.24
+matplotlib>=3.8
+
+# Only needed to compile and profile for the NPU (scripts/*aihub*, dam_sam/ptq4sam):
+# qai-hub>=0.55
+# onnx>=1.17
+# onnxruntime>=1.20

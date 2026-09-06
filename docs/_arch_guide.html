@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Understanding DAM-SAM</title>
+<style>
+@page { size: A4; margin: 20mm 18mm 18mm 18mm;
+  @bottom-center { content: counter(page); font-family: Georgia, serif; font-size: 9pt; color: #666; } }
+@page :first { @bottom-center { content: ""; } }
+body { font-family: Georgia, "Times New Roman", serif; font-size: 10.5pt; line-height: 1.5; color: #111; }
+h1 { font-size: 20pt; margin: 0 0 4pt 0; page-break-before: always; padding-top: 6pt;
+     border-bottom: 2.5px solid #1a3a5c; color: #1a3a5c; }
+h1.first { page-break-before: avoid; }
+h2 { font-size: 13.5pt; color: #1a3a5c; margin: 18pt 0 5pt 0; page-break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 13pt 0 4pt 0; color: #333; page-break-after: avoid; }
+p { margin: 0 0 8pt 0; text-align: justify; }
+pre { font-family: "DejaVu Sans Mono", monospace; font-size: 7.6pt; line-height: 1.28;
+      background: #f7f8fa; border: 1px solid #d5dae1; border-left: 3px solid #1a3a5c;
+      padding: 7pt 9pt; margin: 9pt 0; page-break-inside: avoid; white-space: pre; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; background: #eef1f4;
+       padding: 0.5pt 3pt; border-radius: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 9pt 0; font-size: 9pt; page-break-inside: avoid; }
+th { background: #1a3a5c; color: #fff; text-align: left; padding: 4pt 6pt; font-weight: normal; }
+td { border-bottom: 1px solid #d5dae1; padding: 3.5pt 6pt; vertical-align: top; }
+tr:nth-child(even) td { background: #f7f8fa; }
+.note { background: #fdf6e3; border-left: 3px solid #b58900; padding: 7pt 10pt; margin: 10pt 0;
+        page-break-inside: avoid; font-size: 9.8pt; }
+.key { background: #eef7ee; border-left: 3px solid #2d7a2d; padding: 7pt 10pt; margin: 10pt 0;
+       page-break-inside: avoid; font-size: 9.8pt; }
+.warn { background: #fdeeec; border-left: 3px solid #b03a2e; padding: 7pt 10pt; margin: 10pt 0;
+        page-break-inside: avoid; font-size: 9.8pt; }
+.note b, .key b, .warn b { display: block; margin-bottom: 3pt; font-size: 9pt;
+        text-transform: uppercase; letter-spacing: 0.5px; }
+.note b { color: #8a6500; } .key b { color: #2d7a2d; } .warn b { color: #b03a2e; }
+.title-page { text-align: center; padding-top: 55mm; page-break-after: always; }
+.title-page h1 { font-size: 30pt; border: none; page-break-before: avoid; color: #1a3a5c; }
+.title-page .sub { font-size: 13pt; color: #444; margin-top: 10pt; font-style: italic; }
+.title-page .meta { font-size: 10pt; color: #666; margin-top: 40pt; line-height: 1.9; }
+.toc { font-size: 10pt; } .toc div { margin: 2.5pt 0; }
+.toc .p { font-weight: bold; margin-top: 8pt; color: #1a3a5c; }
+.toc .s { margin-left: 16pt; color: #333; }
+ul, ol { margin: 5pt 0 9pt 0; padding-left: 18pt; } li { margin-bottom: 4pt; text-align: justify; }
+.eq { text-align: center; font-family: "DejaVu Sans Mono", monospace; font-size: 10pt;
+      margin: 9pt 0; padding: 6pt; background: #f7f8fa; border: 1px solid #d5dae1; }
+.cap { font-size: 8.5pt; color: #666; text-align: center; margin: -5pt 0 10pt 0; font-style: italic; }
+</style></head><body>
+
+<div class="title-page">
+<h1 class="first">Understanding DAM-SAM</h1>
+<div class="sub">Segment Anything, LoRA, Conv-LoRA and Mixture-of-Experts<br>— explained from the ground up</div>
+<div class="meta">
+A reader's guide to the defect-segmentation model<br>
+for additive-manufacturing X-ray CT<br><br>
+Prepared for Mushfiqur Rahman<br>
+West Virginia University
+</div>
+</div>
+
+<h1 class="first" style="page-break-before: always;">How to read this</h1>
+<p>This guide explains the model from first principles. You do not need prior knowledge of
+SAM, LoRA, or mixture-of-experts. Each part builds on the last:</p>
+
+<div class="toc">
+<div class="p">Part I — Segment Anything (SAM): the foundation model</div>
+<div class="s">What problem SAM solves · the three-part split and why it exists · the image encoder ·
+the prompt encoder · the mask decoder · why SAM alone fails on your data</div>
+<div class="p">Part II — Why we adapt instead of retrain, and what LoRA is</div>
+<div class="s">The cost of full fine-tuning · the low-rank idea · the math with your real numbers ·
+why it works · what LoRA cannot do</div>
+<div class="p">Part III — Conv-LoRA: giving the adapter a sense of space</div>
+<div class="s">The inductive bias a ViT threw away · putting a convolution in the bottleneck ·
+why the bottleneck is the only affordable place</div>
+<div class="p">Part IV — Mixture-of-Experts: many scales, one cost</div>
+<div class="s">The idea of conditional computation · why defect size demands it ·
+the gate · the eight experts · expert collapse and the balancing loss</div>
+<div class="p">Part V — How DAM-SAM puts it together</div>
+<div class="s">Promptless operation · two independent heads · what is frozen · the training recipe</div>
+<div class="p">Part VI — Reference: numbers, file map, and doc-vs-code discrepancies</div>
+</div>
+
+<div class="note"><b>A note on the numbers</b>
+Every parameter count, tensor shape and hyper-parameter in this guide was measured from
+the code in this repository, not copied from a paper. Where the code disagrees with your
+partner's slides (<code>doc.pdf</code>), Part VI lists the differences explicitly — those
+are the places where a paper could accidentally describe something the code does not do.</div>
+
+<!-- ================================================================= -->
+<h1>Part I &nbsp;·&nbsp; Segment Anything (SAM)</h1>
+
+<h2>1.1 &nbsp; What problem SAM was built to solve</h2>
+<p>Traditional segmentation models are trained to find <em>specific</em> things: this one
+finds cars, that one finds tumours. Meta's Segment Anything Model (SAM, 2023) was built to
+do something different — to segment <em>any object you point at</em>, in any image, without
+being retrained. You give it an image plus a <em>prompt</em> (a click, a box, a rough mask),
+and it returns the mask of the thing you indicated.</p>
+
+<p>To make that work, SAM was trained on <b>SA-1B</b>: 11 million images and 1.1 billion
+masks — the largest segmentation dataset ever assembled. The result is a model with an
+extraordinarily good general notion of "what a coherent object looks like": edges, texture
+boundaries, closure, figure-ground separation. That general visual knowledge is the asset
+DAM-SAM borrows. Your project does not need SAM's promptability; it needs SAM's <em>learned
+sense of what a blob-shaped object is</em>, transferred to X-ray CT slices of metal.</p>
+
+<h2>1.2 &nbsp; The three-part split — and why it is the key design decision</h2>
+
+<pre>
+   ┌──────────────────────────────────────────────────────────────────────┐
+   │  1. IMAGE ENCODER          ~631 M parameters      RUNS ONCE PER IMAGE│
+   │     "Look at the picture and describe everything in it."             │
+   │     image (1024×1024×3)  ──────────────►  embedding (64×64×256)      │
+   │     Cost: ~0.7 seconds on a GPU.  Expensive.                         │
+   └──────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     │  reusable embedding
+                                     ▼
+   ┌──────────────────────────────────────────────────────────────────────┐
+   │  2. PROMPT ENCODER          ~6 K parameters      RUNS PER PROMPT     │
+   │     "Turn the user's click / box / mask into vectors."               │
+   └──────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+   ┌──────────────────────────────────────────────────────────────────────┐
+   │  3. MASK DECODER            ~4 M parameters      RUNS PER PROMPT     │
+   │     "Given the description and the prompt, draw the mask."           │
+   │     Cost: ~5 milliseconds.  Cheap.                                   │
+   └──────────────────────────────────────────────────────────────────────┘
+</pre>
+<div class="cap">Figure 1. SAM's asymmetric three-part design.</div>
+
+<div class="key"><b>The central insight</b>
+The encoder is <b>150× larger</b> than the decoder and runs <b>once</b>; the decoder is tiny
+and runs <b>every time you click</b>. This asymmetry is deliberate: it makes interactive use
+fast (encode the photo once, then answer clicks in milliseconds). For your project it has a
+different and equally important consequence — <b>the expensive part is the part you can
+freeze, and the cheap part is the part you can afford to retrain from scratch.</b> That is
+exactly what DAM-SAM does.</div>
+
+<h2>1.3 &nbsp; The image encoder: a Vision Transformer</h2>
+<p>The encoder is a Vision Transformer (ViT). Here is what it does to your 1024×1024 CT
+slice, step by step.</p>
+
+<h3>Step 1 — Cut the image into patches</h3>
+<p>A convolution with kernel 16 and stride 16 slices the image into a grid of 16×16-pixel
+patches and projects each into a 1280-dimensional vector (for ViT-H). A 1024×1024 image
+becomes a <b>64×64 grid = 4096 patches</b>, each described by 1280 numbers. In transformer
+language each patch is a <em>token</em> — the visual equivalent of a word.</p>
+
+<div class="note"><b>Remember this number: 4096 tokens</b>
+It returns in Part VI and it is the single most consequential number in the whole
+deployment story. Attention cost grows with the <em>square</em> of the token count, so
+4096 tokens means a 4096×4096 attention matrix — 16.8 million entries per head.</div>
+
+<h3>Step 2 — Add position information</h3>
+<p>Attention is order-blind: shuffle the tokens and it computes the same thing. So a learned
+<code>pos_embed</code> tensor of shape (1, 64, 64, 1280) — one vector per grid cell — is
+<em>added</em> to the patch embeddings, telling the model where each patch sits.</p>
+
+<div class="warn"><b>Why the model is locked to 1024×1024</b>
+That position grid is exactly 64×64, baked in at pretraining. Feed a 512×512 image and you
+get a 32×32 grid of patches that does not match the 64×64 position table — a shape mismatch.
+This is why SAM hard-rejects any other input size, and why running at 512² (which we did
+later in this project) required resampling <code>pos_embed</code> and then re-training.</div>
+
+<h3>Step 3 — 32 transformer blocks</h3>
+<pre>
+   token stream (4096 × 1280)
+        │
+        ├─────────────────────────────┐
+        ▼                             │
+   LayerNorm                          │  residual
+        ▼                             │  (a shortcut so the block only has to
+   SELF-ATTENTION                     │   learn a *correction*, not the whole
+   "every patch looks at other        │   signal — this is what makes very
+    patches and gathers context"      │   deep networks trainable)
+        ▼                             │
+        + ◄───────────────────────────┘
+        │
+        ├─────────────────────────────┐
+        ▼                             │
+   LayerNorm                          │  residual
+        ▼                             │
+   MLP  (1280 → 5120 → 1280)          │
+   "each patch thinks on its own"     │
+        ▼                             │
+        + ◄───────────────────────────┘
+        │
+        ▼   to next block
+</pre>
+<div class="cap">Figure 2. One of the 32 ViT blocks. Attention mixes information <i>between</i>
+patches; the MLP processes each patch <i>independently</i>.</div>
+
+<p><b>What attention actually does.</b> Each token produces three vectors: a
+<b>query</b> ("what am I looking for?"), a <b>key</b> ("what do I offer?") and a
+<b>value</b> ("what I will pass on"). Every query is compared against every key; the
+resulting scores, after a softmax, say how much each token should absorb from every other
+token. In your images this is how a patch containing part of a pore edge can discover that
+neighbouring patches contain the rest of the same pore.</p>
+
+<div class="eq">Attention(Q, K, V) = softmax( Q·K<sup>T</sup> / √d ) · V</div>
+
+<p>All three of Q, K and V are produced by <em>one</em> linear layer in this implementation
+— a fused <code>qkv</code> matrix of shape 1280 → 3840 that emits all three at once. Keep
+that fact in mind; it matters a great deal in Part II.</p>
+
+<h3>Step 4 — Windowed vs global attention</h3>
+<p>Comparing all 4096 tokens against all others is expensive, so SAM does it in only
+<b>4 of the 32 blocks</b> (blocks 7, 15, 23 and 31 — the "global" blocks). The other 28
+restrict attention to <b>14×14 windows</b>: each patch only sees its local neighbourhood.
+The design alternates cheap local processing with occasional expensive global mixing.</p>
+
+<h3>Step 5 — The neck</h3>
+<p>Two convolutions compress 1280 channels down to <b>256</b>, giving the final image
+embedding of shape <b>(256, 64, 64)</b>. This is SAM's complete description of your image,
+and it is what the decoder consumes.</p>
+
+<h2>1.4 &nbsp; The prompt encoder</h2>
+<p>This converts user input into vectors the decoder understands. It handles two kinds:</p>
+<ul>
+<li><b>Sparse prompts</b> — points and boxes, encoded as a handful of vectors using a random
+Fourier positional encoding.</li>
+<li><b>Dense prompts</b> — a rough input mask, encoded as a full 64×64 spatial grid.</li>
+</ul>
+<p>Crucially, it also has learned <b>"no prompt given" defaults</b>: if you supply nothing,
+it emits a learned embedding called <code>no_mask_embed</code> broadcast across the whole
+64×64 grid. <b>This default is exactly what DAM-SAM relies on</b> — see Part V.</p>
+
+<h2>1.5 &nbsp; The mask decoder</h2>
+<p>The decoder is small (~4 M parameters) but architecturally the most interesting piece.
+It uses a <b>two-way transformer</b>: information flows in both directions between a handful
+of learned query tokens and the 4096 image tokens.</p>
+
+<pre>
+   INPUTS
+     query tokens:  [ IoU token ][ mask token ×4 ]   ← learned, not from the image
+     image tokens:  4096 × 256                        ← from the encoder
+        │
+        ▼
+   ┌─ TwoWayAttentionBlock  (×2) ──────────────────────────────────┐
+   │  (a) token self-attention        tokens talk among themselves │
+   │  (b) token → image cross-attn    tokens READ the image        │
+   │  (c) MLP on tokens                                             │
+   │  (d) image → token cross-attn    the image READS the tokens   │
+   └────────────────────────────────────────────────────────────────┘
+        │  + one final token→image attention
+        ▼
+   UPSCALING              two ConvTranspose2d layers:  64×64 → 256×256
+        │
+        ▼
+   HYPERNETWORK           each mask token → an MLP → a 32-dim filter vector
+        │                 that filter is dot-producted with every pixel of the
+        ▼                 upscaled feature map to produce the mask
+   mask logits (256×256)  →  bilinearly upsampled to 1024×1024
+</pre>
+<div class="cap">Figure 3. The mask decoder. Step (d) — letting the image attend back to
+the tokens — is what makes it "two-way".</div>
+
+<p>The <b>hypernetwork</b> idea is worth pausing on: instead of predicting the mask
+directly, the decoder predicts a small <em>filter</em>, and that filter is applied across
+the feature map to produce the mask. This is why a 4-million-parameter decoder can produce
+sharp, full-resolution masks — it outputs a rule for drawing the mask rather than the mask
+itself. The <b>IoU token</b> separately predicts how good the model thinks its own mask is.</p>
+
+<h2>1.6 &nbsp; Why SAM alone does not solve your problem</h2>
+<table>
+<tr><th>SAM as shipped</th><th>What your task needs</th></tr>
+<tr><td>Trained on natural photos — people, animals, furniture</td><td>Grayscale X-ray CT slices of metal: different textures, different statistics entirely</td></tr>
+<tr><td>Needs a prompt — someone must click each object</td><td>Fully automatic: hundreds of defects per slice, no human in the loop</td></tr>
+<tr><td>Segments any salient object</td><td>Only two specific classes: pores and inclusions — and must ignore everything else</td></tr>
+<tr><td>Tuned for objects occupying meaningful image area</td><td>Defects of 2–300 pixels in a 1-million-pixel image</td></tr>
+</table>
+
+<p>So SAM must be <em>adapted</em>. The question is how — which is Part II.</p>
+
+<!-- ================================================================= -->
+<h1>Part II &nbsp;·&nbsp; Adapting a frozen model: LoRA</h1>
+
+<h2>2.1 &nbsp; Why not simply fine-tune the whole thing?</h2>
+<p>The obvious approach — unfreeze all 631 M parameters and train on your CT data — fails
+for four independent reasons:</p>
+<table>
+<tr><th>Problem</th><th>Detail</th></tr>
+<tr><td><b>Not enough data</b></td><td>You have ~1000 training images. SAM was trained on 11 million. Updating 631 M parameters from 1000 examples overfits catastrophically.</td></tr>
+<tr><td><b>Catastrophic forgetting</b></td><td>The general visual knowledge that makes SAM valuable would be overwritten by a narrow domain — you would destroy the very thing you are borrowing.</td></tr>
+<tr><td><b>Memory</b></td><td>AdamW keeps two extra copies of every trained parameter (momentum + variance). 631 M params ≈ 2.5 GB of weights, but ~10 GB once optimizer state and gradients are included, before activations.</td></tr>
+<tr><td><b>Storage</b></td><td>Every experiment produces a 2.5 GB checkpoint. With adapters, each is 35 MB.</td></tr>
+</table>
+
+<h2>2.2 &nbsp; The LoRA idea</h2>
+<p><b>LoRA</b> (Low-Rank Adaptation, Hu et al. 2021) begins from an empirical observation:
+when you fine-tune a large pretrained model, the <em>change</em> to each weight matrix —
+call it ΔW — turns out to have very low <b>rank</b>. Informally: fine-tuning does not
+rewrite the layer, it nudges it along a handful of directions.</p>
+
+<p>If ΔW is low-rank, you never need to store or compute the full matrix. You can factor
+it into two thin matrices:</p>
+
+<div class="eq">ΔW  =  B · A &nbsp;&nbsp;&nbsp;&nbsp; where  A ∈ ℝ<sup>r×in</sup>,  B ∈ ℝ<sup>out×r</sup>,  r ≪ in, out</div>
+
+<p>and keep the original W frozen:</p>
+
+<div class="eq">y  =  W·x  +  (α / r) · B · (A · x)</div>
+
+<pre>
+                    ┌──────────────────────────────┐
+      x ────────────►│   W   (frozen, 1280×3840)    │────────────► + ──► y
+   (1280)         │  └──────────────────────────────┘              ▲
+                  │                                                │
+                  │  ┌────────┐      ┌────────┐                    │
+                  └─►│   A    │─────►│   B    │──── × (α/r) ───────┘
+                     │ 1280→2 │  r=2 │ 2→3840 │
+                     └────────┘      └────────┘
+                     trainable       trainable
+</pre>
+<div class="cap">Figure 4. LoRA runs a thin parallel branch alongside the frozen weight.
+The bottleneck (r = 2 here) is what makes it cheap.</div>
+
+<h3>The numbers, for your actual model</h3>
+<p>One fused <code>qkv</code> layer in ViT-H is 1280 × 3840 = <b>4,915,200</b> parameters.
+With rank r = 2:</p>
+<ul>
+<li><code>A</code>: 2 × 1280 = 2,560 parameters</li>
+<li><code>B</code>: 3840 × 2 = 7,680 parameters</li>
+<li><b>Total: 10,240</b> — a <b>480× reduction</b>, or 0.21% of the layer.</li>
+</ul>
+<p>Across all 32 blocks: 327,680 LoRA parameters versus 157 million frozen ones.</p>
+
+<h3>What α and r mean</h3>
+<p><code>r</code> (rank) is the width of the bottleneck — the number of directions the
+adaptation is allowed to move in. <code>α</code> is a scaling constant; the update is
+multiplied by α/r. Your model uses <b>r = 2, α = 8</b>, so the scaling is 4.0. Setting
+<code>B = 0</code> at initialization means the adapter starts as an exact no-op: training
+begins from unmodified SAM and departs smoothly.</p>
+
+<div class="key"><b>Why LoRA works at all</b>
+The frozen model already knows what an edge, a blob and a texture boundary are. It does not
+need to relearn vision — it needs a small correction that says "in <em>this</em> domain,
+<em>these</em> features are the salient ones." A low-rank nudge is enough to express that,
+which is why 0.65% of the parameters can redirect a 631 M-parameter model to a new domain.</div>
+
+<h2>2.3 &nbsp; What plain LoRA cannot do</h2>
+<p>Look closely at the LoRA branch: <code>A</code> and <code>B</code> are <em>linear
+layers</em>. They mix <em>channels</em> — the 1280 feature dimensions — and each token is
+processed in complete isolation from its neighbours. The adapter has <b>no way to express
+"look at the patch next to me."</b></p>
+
+<p>For classification that is fine: you are producing one label per image, and the ViT's own
+attention handles spatial relationships. But your task is <b>dense prediction</b> — a
+decision at every pixel, for objects a few pixels across. Two things matter enormously
+there and a linear adapter cannot supply either:</p>
+<ul>
+<li><b>Locality</b> — a pore is defined by its immediate neighbourhood, not by a global
+channel re-weighting.</li>
+<li><b>Multi-scale structure</b> — your defects span 2 to 300 pixels, which is over two
+orders of magnitude in area.</li>
+</ul>
+
+<p>Convolutional networks have these properties built in — that is their famous
+<em>inductive bias</em>. Vision Transformers deliberately discarded it, gaining flexibility
+at the cost of needing enormous data to relearn what a CNN assumes for free. In a
+small-data, dense-prediction, small-object regime, that trade is exactly backwards.</p>
+
+<p><b>This is the gap Conv-LoRA fills.</b></p>
+
+<!-- ================================================================= -->
+<h1>Part III &nbsp;·&nbsp; Conv-LoRA</h1>
+
+<h2>3.1 &nbsp; The idea in one sentence</h2>
+<p><b>Put a small convolution inside the LoRA bottleneck</b>, so the adapter can see space,
+not just channels.</p>
+<p>Conv-LoRA (Zhong et al., ICLR 2024, "Convolution Meets LoRA") was designed for exactly
+your situation: adapting SAM to specialised dense-prediction domains — medical imaging,
+industrial inspection, remote sensing — where the pretrained ViT lacks the local prior the
+task needs.</p>
+
+<h2>3.2 &nbsp; Why the bottleneck is the only affordable place</h2>
+<p>You might ask: why not just add a convolution somewhere in the network? Because of cost.
+Compare a 3×3 convolution applied at different widths:</p>
+<table>
+<tr><th>Where</th><th>Channels</th><th>Parameters in a 3×3 conv</th></tr>
+<tr><td>On the full feature map</td><td>1280</td><td>1280 × 1280 × 9 = <b>14,745,600</b></td></tr>
+<tr><td>On the neck output</td><td>256</td><td>256 × 256 × 9 = <b>589,824</b></td></tr>
+<tr><td><b>Inside the LoRA bottleneck</b></td><td><b>2</b></td><td>2 × 2 × 9 = <b>36</b></td></tr>
+</table>
+<p>The bottleneck is <b>400,000× cheaper</b> than the full feature map. The rank-2
+compression has already distilled the signal down to the few directions that matter; adding
+spatial mixing there costs almost nothing, and the <code>B</code> matrix expands the result
+back to full width afterwards. This is the elegant part of the design.</p>
+
+<h2>3.3 &nbsp; The shape gymnastics</h2>
+<p>One wrinkle: <code>A·x</code> produces a <em>sequence</em> of tokens, but a convolution
+needs a 2-D <em>image</em>. So the adapter reshapes the token sequence back into a spatial
+grid, convolves, and flattens again:</p>
+<pre>
+   tokens (B, 4096, 2)  ──reshape──►  map (B, 2, 64, 64)
+                                            │
+                                        [ convolution ]
+                                            │
+   tokens (B, 4096, 2)  ◄──flatten───  map (B, 2, 64, 64)
+</pre>
+<p>The information was always spatial — the ViT merely represents it as a flat list. The
+adapter temporarily restores the spatial view so a convolution can act on it.</p>
+
+<div class="key"><b>Conv-LoRA in one line</b>
+<div class="eq" style="margin:6pt 0 0 0; background:none; border:none;">
+y = W·x &nbsp;+&nbsp; (α/r) · B · [ A·x &nbsp;+&nbsp; Conv( A·x ) ]</div>
+The convolution is a <i>residual</i> addition — the adapter can learn to ignore it entirely
+by driving the conv weights to zero, so it never makes things worse than plain LoRA.</div>
+
+<h2>3.4 &nbsp; Why one convolution is still not enough</h2>
+<p>A 3×3 convolution sees a 3×3 neighbourhood. On the 64×64 patch grid, that corresponds to
+a 48×48-pixel region of the original image — a sensible scale for a medium pore, but
+</p>
+<ul>
+<li>too <b>coarse</b> for a 2-pixel pore, which occupies a fraction of a single patch;</li>
+<li>too <b>fine</b> for a 300-pixel inclusion spanning many patches.</li>
+</ul>
+<p>You could use a bigger kernel, but then you lose the small defects. You could stack
+several convolutions, but you would pay for all of them on every image.</p>
+<p>What you actually want is a <b>set</b> of receptive-field sizes, with the model choosing
+the right one for each image. That is precisely what a mixture-of-experts provides — Part IV.</p>
+
+<!-- ================================================================= -->
+<h1>Part IV &nbsp;·&nbsp; Mixture-of-Experts</h1>
+
+<h2>4.1 &nbsp; The general concept</h2>
+<p>A <b>Mixture-of-Experts</b> (MoE) layer holds several parallel sub-networks — the
+<em>experts</em> — plus a small <b>gate</b> that decides which expert handles each input.
+Critically, only the selected expert(s) actually run.</p>
+
+<div class="key"><b>Why MoE exists: conditional computation</b>
+An MoE gives a model <b>N times the capacity at roughly 1× the compute</b>. Parameters
+scale with the number of experts, but the cost per input scales with the number
+<em>activated</em> — one, in your model. You get a library of specialists while paying for a
+single consultation. This is the same principle behind sparse large language models,
+applied here at a very small scale.</div>
+
+<h2>4.2 &nbsp; What the experts specialise in here</h2>
+<p>In a language MoE, experts might specialise by topic. In Conv-LoRA they specialise by
+<b>spatial scale</b>. Expert <i>i</i> works like this:</p>
+<pre>
+   feature map (B, 2, 64, 64)
+        │
+        ├─ upsample ×i  (bicubic)  ────►  (B, 2, 64i, 64i)
+        │                                      │
+        │                                 Conv2d(2→2, 3×3) + GELU
+        │                                      │
+        └─ downsample back to 64×64  ◄─────────┘
+</pre>
+<p>The trick: a 3×3 kernel applied to an image upsampled ×8 covers, in original-image terms,
+a region <b>8× smaller</b> than the same kernel applied at ×1. So the eight experts
+(i = 1…8) form a ladder of effective receptive fields:</p>
+<table>
+<tr><th>Expert</th><th>Upsample factor</th><th>Grid it convolves on</th><th>Effective scale</th></tr>
+<tr><td>1</td><td>×1</td><td>64×64</td><td>coarsest — large inclusions</td></tr>
+<tr><td>2</td><td>×2</td><td>128×128</td><td>↓</td></tr>
+<tr><td>4</td><td>×4</td><td>256×256</td><td>↓</td></tr>
+<tr><td>8</td><td>×8</td><td>512×512</td><td>finest — tiny pores</td></tr>
+</table>
+<p>The model therefore has a <b>learned scale selector</b> for defect size — precisely the
+multi-scale capability plain LoRA lacks, and precisely what a dataset with 2-to-300-pixel
+defects requires.</p>
+
+<h2>4.3 &nbsp; The gate</h2>
+<p>The gate (<code>MoEGate</code> in the code) decides which expert to use:</p>
+<pre>
+   feature map (B, 2, 64, 64)
+        │
+        ▼  global average pool          "summarise this whole image in 2 numbers"
+   (B, 2)
+        │
+        ▼  × w_gate  (2 × 8)            "score all 8 experts"
+   logits (B, 8)
+        │
+        ▼  + noise × softplus(x·w_noise)   ← TRAINING ONLY (see below)
+        │
+        ▼  top-1 + softmax
+   one chosen expert per image
+</pre>
+
+<p><b>Why the noise?</b> During training a small amount of learned Gaussian noise is added
+to the gate's scores. Without it the gate quickly locks onto whichever expert was
+accidentally best early on, that expert alone receives gradient, gets better, and is chosen
+even more — a self-reinforcing collapse. The noise keeps the routing exploratory. At
+inference it is switched off, so behaviour is deterministic.</p>
+
+<p><b>Top-1</b> means exactly one expert runs per image. The other seven are inert: their
+parameters exist but cost nothing this forward pass.</p>
+
+<h2>4.4 &nbsp; Load balancing: preventing expert collapse</h2>
+<p>Noise alone is not enough. The MoE also adds an explicit <b>auxiliary loss</b> that
+penalises unequal expert usage, using the squared coefficient of variation (CV² = variance
+÷ mean²) of two quantities across a batch:</p>
+<ul>
+<li><b>importance</b> — the total gate weight each expert receives;</li>
+<li><b>load</b> — how many samples each expert actually got.</li>
+</ul>
+<div class="eq">L<sub>moe</sub> = CV²(importance) + CV²(load)</div>
+<p>If one expert dominates, the variance across experts is high, CV² is high, and the loss
+pushes back. If usage is even, CV² ≈ 0. In DAM-SAM this is added to the segmentation loss
+with weight <b>0.1</b> (<code>--moe_loss_weight</code>), so it shapes routing without
+overwhelming the actual task.</p>
+
+<div class="warn"><b>The cost of this design, for deployment</b>
+The routing machinery uses data-dependent control flow — which expert runs is decided by the
+input at runtime. That is fine on a GPU, but it cannot be expressed as a static computation
+graph, which is what NPUs and mobile accelerators require. Converting this model for edge
+hardware means rewriting the MoE to compute all eight experts and mask the unused ones
+(cheap here: all 8 experts together add only ~0.03% to total compute).</div>
+
+<h2>4.5 &nbsp; The complete Conv-LoRA + MoE forward pass</h2>
+<pre>
+                        x  (B, 4096, 1280)
+                        │
+        ┌───────────────┴────────────────────────────────────┐
+        │                                                    │
+        ▼                                                    ▼
+   ┌─────────────────────┐                          ┌──────────────────┐
+   │  W  (FROZEN)        │                          │  A  (trainable)  │  1280 → 2
+   │  1280 → 3840        │                          └────────┬─────────┘
+   └──────────┬──────────┘                                   │
+              │                                    reshape to (B, 2, 64, 64)
+              │                                              │
+              │                          ┌───────────────────┴──────────────┐
+              │                          │                                  │
+              │                          ▼                                  │ residual
+              │                   ┌─────────────┐                           │
+              │                   │  MoE GATE   │  pool → score → top-1     │
+              │                   └──────┬──────┘                           │
+              │                          │ picks ONE of:                    │
+              │                          ▼                                  │
+              │              ┌────────────────────────────┐                 │
+              │              │ Expert 1  ×1  Conv3×3+GELU │                 │
+              │              │ Expert 2  ×2  Conv3×3+GELU │                 │
+              │              │    ...                     │                 │
+              │              │ Expert 8  ×8  Conv3×3+GELU │                 │
+              │              └─────────────┬──────────────┘                 │
+              │                            │                                │
+              │                            ▼                                │
+              │                            + ◄──────────────────────────────┘
+              │                            │
+              │                     flatten to (B, 4096, 2)
+              │                            │
+              │                   ┌────────▼─────────┐
+              │                   │  B  (trainable)  │  2 → 3840
+              │                   └────────┬─────────┘
+              │                            │  × (α/r) = ×4.0
+              ▼                            ▼
+              └──────────────► + ◄─────────┘
+                               │
+                               ▼
+                     qkv output (B, 4096, 3840)   →  split into Q, K, V
+</pre>
+<div class="cap">Figure 5. The full adapted attention projection. Everything on the left is
+frozen SAM; everything on the right is the ~10 K trainable parameters per layer.</div>
+
+<!-- ================================================================= -->
+<h1>Part V &nbsp;·&nbsp; How DAM-SAM assembles it</h1>
+
+<h2>5.1 &nbsp; Promptless operation</h2>
+<p>SAM needs a prompt. Your task cannot supply one — nobody is going to click on every pore
+in every slice. DAM-SAM's answer is to <b>keep the prompt encoder and never prompt it</b>.</p>
+<p>The decoder therefore receives the prompt encoder's learned "nothing was given" defaults
+and must localise defects <em>from the adapted image embedding alone</em>. This puts the
+entire burden on two things: the Conv-LoRA adaptation of the encoder, and the fully
+retrained mask decoder. It also means the decoder is being used for something it was never
+trained to do, which is why it is retrained from scratch rather than adapted.</p>
+
+<h2>5.2 &nbsp; Two independent heads</h2>
+<p>Rather than one model producing two output channels, DAM-SAM builds <b>two complete,
+independent models</b> — one for pores, one for inclusions:</p>
+<pre>
+                       input image (B, 3, 1024, 1024)
+                          │                    │
+          ┌───────────────┘                    └───────────────┐
+          ▼                                                    ▼
+   ┌──────────────────────┐                        ┌──────────────────────┐
+   │ SAM ViT (frozen)     │                        │ SAM ViT (frozen)     │
+   │ + PORE Conv-LoRA  🔥 │                        │ + INCL Conv-LoRA  🔥 │
+   └──────────┬───────────┘                        └──────────┬───────────┘
+              ▼                                               ▼
+   ┌──────────────────────┐                        ┌──────────────────────┐
+   │ PORE mask decoder 🔥 │                        │ INCL mask decoder 🔥 │
+   └──────────┬───────────┘                        └──────────┬───────────┘
+              ▼                                               ▼
+      pore logits (1024²)                            incl logits (1024²)
+              │                                               │
+              ▼                                               ▼
+      L_pore  ──► backward ──► updates ONLY          L_incl ──► backward ──► updates ONLY
+                  pore LoRA + pore decoder                     incl LoRA + incl decoder
+</pre>
+<div class="cap">Figure 6. Two heads, complete gradient isolation. 🔥 = trainable.</div>
+
+<p><b>Why separate?</b> The two classes differ enough — in scale, in density, in how costly
+a false positive is — that sharing one adapter would force a compromise. The stated
+reasoning in the code is that dedicated capacity per class is worth roughly 2× the trainable
+parameters (still under 1% of the model). The isolation is thorough: separate optimizers,
+separate learning-rate schedules, separate gradient clipping, so instability in one head
+cannot disturb the other.</p>
+
+<h2>5.3 &nbsp; What is frozen and what trains</h2>
+<table>
+<tr><th>Component</th><th>Parameters</th><th>Status</th></tr>
+<tr><td>ViT backbone (attention, MLPs, norms, patch/pos embeddings, neck)</td><td>~637 M</td><td>❄ frozen</td></tr>
+<tr><td>Prompt encoder</td><td>~6 K</td><td>❄ frozen</td></tr>
+<tr><td>Conv-LoRA <code>A</code> + <code>B</code> (32 layers)</td><td>327,680</td><td>🔥 trained</td></tr>
+<tr><td>Conv experts (32 layers × 8 experts)</td><td>9,728</td><td>🔥 trained</td></tr>
+<tr><td>MoE gates</td><td>1,024</td><td>🔥 trained</td></tr>
+<tr><td>Mask decoder (transformer, upscaling, hypernetworks, IoU head)</td><td>~3.80 M</td><td>🔥 trained</td></tr>
+<tr><td colspan="3" style="background:#eef7ee"><b>Trainable per head: 4.14 M &nbsp;=&nbsp; 0.65% of 641 M</b></td></tr>
+</table>
+<p>Freezing is enforced by name: a parameter trains if and only if its name contains
+<code>lora_</code> or begins with <code>mask_decoder</code>. Checkpoints store only those
+tensors — which is why both heads together fit in a 35 MB file rather than 5 GB.</p>
+
+<h2>5.4 &nbsp; The training recipe</h2>
+<table>
+<tr><th>Aspect</th><th>Choice</th><th>Reason</th></tr>
+<tr><td>Loss (default)</td><td>Dice + Focal</td><td>Dice normalises by object size so tiny defects are not swamped; Focal down-weights easy background pixels</td></tr>
+<tr><td>Alternative loss</td><td>Focal-Tversky (α=.3, β=.7)</td><td>β &gt; α penalises <i>missed</i> defects more than false alarms</td></tr>
+<tr><td>Inclusion loss</td><td>averaged per image</td><td>Stops one dense image dominating a batch-level mean</td></tr>
+<tr><td>Class imbalance</td><td>5× oversampling of inclusion-positive images</td><td>Inclusions are far rarer than pores</td></tr>
+<tr><td>Augmentation</td><td>h-flip, v-flip, 90/180/270° rotation</td><td>Applied identically to image and both masks; defects have no canonical orientation</td></tr>
+<tr><td>Optimizer</td><td>AdamW, per head</td><td>—</td></tr>
+<tr><td>Learning rate</td><td>3e-4 with layer-wise decay ×0.9</td><td>Deeper blocks are more task-specific and can move more; early blocks encode generic features and are kept nearly still</td></tr>
+<tr><td>Schedule</td><td>10% linear warmup → cosine to 0</td><td>—</td></tr>
+<tr><td>Precision</td><td>bfloat16 autocast, no GradScaler</td><td>bf16 has fp32's exponent range; fp16 previously produced NaNs in the MoE gate</td></tr>
+<tr><td>Safety</td><td>skip any non-finite loss before backward</td><td>Gradient clipping cannot repair a NaN — it would be baked into the weights permanently</td></tr>
+<tr><td>Selection</td><td>best pore validation IoU, patience 20</td><td>Pore has the natural (non-oversampled) distribution and is the harder head</td></tr>
+</table>
+
+<h2>5.5 &nbsp; Inference</h2>
+<p>Evaluation is not just a forward pass; there is a substantial post-processing chain, and
+its settings materially change the results:</p>
+<ol>
+<li><b>Preprocess</b> — optional CLAHE contrast enhancement and gamma correction, resize, ImageNet normalise.</li>
+<li><b>Predict</b> — optionally with test-time augmentation (average the prediction over the image plus its horizontal and vertical flips).</li>
+<li><b>Upsample probabilities</b> to native resolution, then threshold.</li>
+<li><b>Morphological opening</b> — erode then dilate, removing speckle.</li>
+<li><b>Blob filtering</b> — discard connected components below <code>min_blob</code> or above <code>max_blob</code> pixels.</li>
+<li><b>Valid-region masking</b> — Otsu-threshold the slice and fit an enclosing circle; the specimen is a circular cross-section, so anything outside is air and is excluded from both prediction and ground truth.</li>
+<li><b>Metrics</b> — IoU, Dice, and tolerance-F1 (a prediction counts as correct within 5 pixels of ground truth, forgiving boundary offsets that would otherwise dominate the score for a 3-pixel object).</li>
+</ol>
+
+<div class="warn"><b>The metric trap you must know about</b>
+An image with no defects and no prediction scores IoU = 1.0. On a split where 89 of 100
+images are defect-free, the reported <b>Mean IoU can read 0.89 while the model detects
+nothing at all</b>. Always read <b>IoU(pos)</b> — the score over defect-bearing images only.
+This is not hypothetical; it occurred in this project's measurements.</div>
+
+<!-- ================================================================= -->
+<h1>Part VI &nbsp;·&nbsp; Reference</h1>
+
+<h2>6.1 &nbsp; Doc-vs-code discrepancies</h2>
+<p>Your partner's slides describe an earlier iteration. Where they differ from the code as
+it now stands, the code is authoritative. These matter for a paper because they change what
+a reader would reproduce.</p>
+<table>
+<tr><th>Topic</th><th><code>doc.pdf</code> says</th><th>The code does</th></tr>
+<tr><td>Adapter placement</td><td>separate adapters on <code>attn.q</code> and <code>attn.v</code>; <code>k</code> frozen</td><td>HF's SAM uses one <b>fused <code>qkv</code></b> layer, and the prefix filter <code>"q"</code> matches it — so a single adapter covers <b>q, k and v</b></td></tr>
+<tr><td>LoRA α</td><td>32</td><td><b>8</b> (giving α/r = 4, matching XCT-SAM's effective scaling)</td></tr>
+<tr><td>Backbone sharing</td><td>one backbone shared by both heads</td><td>each head loads its own copy — two frozen backbones in memory</td></tr>
+<tr><td>Loss</td><td>Focal-Tversky</td><td>Dice+Focal by default (Focal-Tversky available by flag)</td></tr>
+<tr><td>Precision</td><td>fp16 + GradScaler per head</td><td>bf16 autocast, no scaler (fp16 produced NaNs)</td></tr>
+<tr><td>Scheduler</td><td>CosineAnnealingLR, η_min = lr×0.01</td><td>linear warmup → cosine to 0</td></tr>
+<tr><td>Checkpoint</td><td><code>joint_model.ckpt</code></td><td><code>best.pt</code> / <code>last.pt</code></td></tr>
+<tr><td>Trainable</td><td>~3.97 M per head</td><td>4.14 M per head (measured)</td></tr>
+</table>
+<p>Everything else agrees: the freezing scheme, 5× inclusion oversampling, the augmentation
+set, patience-20 early stopping on pore IoU, per-head optimizers and clipping, 1024²
+preprocessing, and the Otsu valid-region protocol.</p>
+
+<h2>6.2 &nbsp; Known issues in the code</h2>
+<table>
+<tr><th>Issue</th><th>Consequence</th></tr>
+<tr><td><code>adaptation_layers.py:771</code> pins a buffer to fp32 inside the MoE gate</td><td><code>model.half()</code> crashes — half precision is impossible without a one-line fix. Use <code>torch.autocast</code>.</td></tr>
+<tr><td>SAM's <code>positional_embedding</code> is a random buffer, saved in neither checkpoint, and <code>evaluate.py</code> never seeds</td><td>Evaluation is not bit-reproducible. Measured impact ≈ 0.0002 IoU — cosmetic, one line from being fixed.</td></tr>
+<tr><td>Vision-attention softmax is pinned to fp32</td><td>Irrelevant on GPU; materialises a 1 GB tensor in any half-precision edge deployment.</td></tr>
+<tr><td>Post-processing settings in <code>run.sh</code> are tuned for ViT-H at 1024²</td><td>They do <b>not</b> transfer to other backbones or resolutions — in this project they silently zeroed out a working inclusion head.</td></tr>
+<tr><td>No requirements file; vendored SAM needs <code>transformers&lt;5</code></td><td>A fresh install breaks.</td></tr>
+</table>
+
+<h2>6.3 &nbsp; File map</h2>
+<table>
+<tr><th>File</th><th>What it holds</th></tr>
+<tr><td><code>dam_sam/modeling_sam_conv_lora.py</code></td><td>The SAM model itself (encoder, prompt encoder, two-way decoder), vendored from HuggingFace with Conv-LoRA hooks added</td></tr>
+<tr><td><code>dam_sam/adaptation_layers.py</code></td><td><code>ConvLoRALinear</code>, <code>MoEGate</code>, <code>SparseDispatcher</code> — Parts III and IV live here</td></tr>
+<tr><td><code>dam_sam/lora_inject.py</code></td><td>The regex surgery that swaps <code>qkv</code> for the adapted version</td></tr>
+<tr><td><code>dam_sam/modeling_dam_sam.py</code></td><td><code>DamSAMHead</code>: promptless wrapper, freezing rule, adapter-only checkpoints</td></tr>
+<tr><td><code>dam_sam/losses.py</code></td><td>Dice+Focal, Focal-Tversky, BCE-Dice, and two documented NaN fixes</td></tr>
+<tr><td><code>dam_sam/dataset.py</code>, <code>transforms.py</code>, <code>utils.py</code></td><td>Data loading, augmentation, Otsu valid region, metrics, LR grouping</td></tr>
+<tr><td><code>scripts/train.py</code></td><td>The two-head trainer</td></tr>
+<tr><td><code>scripts/train_moe.py</code></td><td>Expert-count ablation (varies the 8)</td></tr>
+<tr><td><code>scripts/evaluate.py</code></td><td>Inference, post-processing, metrics, figure panels</td></tr>
+</table>
+
+<h2>6.4 &nbsp; Glossary</h2>
+<table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td><b>Token / patch</b></td><td>A 16×16 pixel square, represented as one vector. A 1024² image = 4096 tokens.</td></tr>
+<tr><td><b>Embedding</b></td><td>A vector that describes something. SAM's image embedding is 256×64×64.</td></tr>
+<tr><td><b>Attention</b></td><td>Mechanism letting every token gather information from every other token, weighted by learned relevance.</td></tr>
+<tr><td><b>Q, K, V</b></td><td>Query / Key / Value — the three projections attention computes from each token.</td></tr>
+<tr><td><b>Frozen</b></td><td>A parameter excluded from training; it keeps its pretrained value forever.</td></tr>
+<tr><td><b>Rank (r)</b></td><td>Width of the LoRA bottleneck — how many directions the adaptation may move in. Here r = 2.</td></tr>
+<tr><td><b>Inductive bias</b></td><td>Assumptions baked into an architecture. CNNs assume locality and translation invariance; ViTs do not.</td></tr>
+<tr><td><b>Dense prediction</b></td><td>A task requiring an output at every pixel, as opposed to one label per image.</td></tr>
+<tr><td><b>Receptive field</b></td><td>The region of the input that influences one output value.</td></tr>
+<tr><td><b>Expert / gate</b></td><td>In MoE: a parallel sub-network, and the router that selects among them.</td></tr>
+<tr><td><b>Top-1 routing</b></td><td>Exactly one expert runs per input, so cost stays constant as experts are added.</td></tr>
+<tr><td><b>Expert collapse</b></td><td>Failure mode where the gate always picks the same expert; prevented by noise + a balancing loss.</td></tr>
+<tr><td><b>IoU / Dice</b></td><td>Overlap metrics between predicted and true masks. IoU = intersection ÷ union.</td></tr>
+<tr><td><b>IoU(pos)</b></td><td>IoU computed only over images that actually contain a defect — the honest metric here.</td></tr>
+<tr><td><b>Promptless</b></td><td>Running SAM with no click, box or mask input, relying on its learned "no prompt" defaults.</td></tr>
+</table>
+
+</body></html>

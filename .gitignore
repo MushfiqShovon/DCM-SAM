@@ -1,0 +1,57 @@
+# ---- environment (5.6 GB, and every file embeds the absolute build path) ----
+env/
+venv/
+.venv/
+
+# ---- data and model weights (too large for git, and not ours to redistribute) ----
+datasets/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+*.bin
+*.data
+*.tflite
+
+# ---- experiment outputs and logs ----
+outputs/
+outputs_*/
+logs/
+runs/
+wandb/
+*.log
+ptq4sam/
+
+# ---- scratch, backups and staging directories ----
+New_Files/
+_backup_*/
+tmp/
+scratch/
+
+# ---- internal engineering log: embeds absolute /home paths and job ids ----
+docs/quantization-study/
+
+# ---- the paper itself: never ship the submission with the code ----
+NeurIPS_Paper/
+paper/
+doc.pdf
+
+# ---- credentials: never commit these ----
+.qai_hub/
+client.ini
+*.key
+*.pem
+.env
+secrets*
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# ---- editor and OS ----
+.vscode/
+.idea/
+.DS_Store
