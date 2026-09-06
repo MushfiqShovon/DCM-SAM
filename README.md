@@ -79,10 +79,10 @@ number to read for segmentation quality on sparse splits.
 Two rewrites are needed before the model can be traced into a static graph for the NPU, both in
 this repository and both numerically checked against the originals.
 
-`dam_sam/ptq4sam/static_moe.py` replaces the gate's input-dependent `argmax` with a one-hot
-selection over all `M` experts, built from an `argmax` compared against `arange(M)` because the
-backend accepts neither scatter nor one-hot operators. Over eight slices this changes 13 of 8.4M
-mask pixels.
+`dam_sam/static_moe.py` replaces the gate's input-dependent `argmax` with a one-hot selection
+over all `M` experts, built from an `argmax` compared against `arange(M)` because the backend
+accepts neither scatter nor one-hot operators. Over eight slices this changes 13 of 8.4M mask
+pixels.
 
 `dam_sam/modeling_sam_conv_lora.py` carries a `USE_SDPA` flag, on by default. It folds the
 decomposed relative-position terms into a single additive bias and calls
@@ -100,7 +100,7 @@ dam_sam/
   adaptation_layers.py        ConvLoRALinear and the noisy top-1 gate
   lora_inject.py              injects adapters into the fused qkv projection of every block
   losses.py                   Dice, focal, Focal-Tversky, per-image reduction
-  ptq4sam/                    static-graph rewrites and quantization experiments
+  static_moe.py               export-safe rewrite of the MoE routing
 scripts/
   train_moe.py                trains both heads
   evaluate_moe.py             evaluates every configuration with fixed per-split settings

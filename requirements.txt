@@ -16,7 +16,7 @@ tqdm>=4.66
 scikit-image>=0.24
 matplotlib>=3.8
 
-# Only needed to compile and profile for the NPU (scripts/*aihub*, dam_sam/ptq4sam):
+# Only needed to compile and profile the exported graphs for the NPU:
 # qai-hub>=0.55
 # onnx>=1.17
 # onnxruntime>=1.20
