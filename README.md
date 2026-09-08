@@ -1,7 +1,10 @@
-# DAM-SAM
+# DCM-SAM
 
-Reference implementation for *DAM-SAM: Defect-Conditioned Adaptive Mixture of LoRA Experts for
-On-Device AM Defect Segmentation*.
+Reference implementation for *DCM-SAM: Defect-Conditioned Mixture of LoRA Experts for
+NPU-Deployed AM Defect Segmentation*.
+
+The Python package is named `dam_sam/` and checkpoint directories are named `dam_sam_*`; these
+are the original module paths and are kept so the code runs as written.
 
 One frozen Segment Anything backbone hosts a separate Conv-LoRA expert bank and mask decoder for
 each defect class. The two heads are trained without prompts, in separate passes, and the whole

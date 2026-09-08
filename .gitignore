@@ -31,6 +31,9 @@ scratch/
 # ---- internal engineering log: embeds absolute /home paths and job ids ----
 docs/quantization-study/
 
+# ---- generated docs: PDF/HTML carry the old DAM-SAM name and an institution line ----
+docs/
+
 # ---- the paper itself: never ship the submission with the code ----
 NeurIPS_Paper/
 paper/
