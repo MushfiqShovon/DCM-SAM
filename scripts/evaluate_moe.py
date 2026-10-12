@@ -1,5 +1,5 @@
 """
-scripts/evaluation_moe.py
+scripts/evaluate_moe.py
 ────────────────────────────────────────────────────────────────────────────────
 Evaluate every MoE-expert-count ablation run trained by scripts/train_moe.py.
 
@@ -39,10 +39,10 @@ Notes
     drop it from the paper table (it is flagged [invert] in the summary).
 
 Usage
-  python3 scripts/evaluation_moe.py                       # all runs, all splits
-  python3 scripts/evaluation_moe.py --runs p1_i8 p8_i1    # subset of runs
-  python3 scripts/evaluation_moe.py --splits nist/test2   # subset of splits
-  python3 scripts/evaluation_moe.py --vanilla             # ranking-robustness check
+  python3 scripts/evaluate_moe.py                       # all runs, all splits
+  python3 scripts/evaluate_moe.py --runs p1_i8 p8_i1    # subset of runs
+  python3 scripts/evaluate_moe.py --splits nist/test2   # subset of splits
+  python3 scripts/evaluate_moe.py --vanilla             # ranking-robustness check
 """
 
 import argparse
@@ -507,6 +507,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python3 scripts/evaluation_moe.py
-# python3 scripts/evaluation_moe.py --vanilla
+# python3 scripts/evaluate_moe.py
+# python3 scripts/evaluate_moe.py --vanilla
 # python3 scripts/summarize_metrics.py outputs/dam_sam_moe/p1_i8   # per-run detail

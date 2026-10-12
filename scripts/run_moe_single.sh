@@ -25,6 +25,7 @@ set -e
 GAN_SPLITS="gan-generated/test1 gan-generated/test2 gan-generated/test4 gan-generated/test5 gan-generated/test6"
 
 python3 scripts/evaluate_moe.py \
+    --checkpoint_name facebook/sam-vit-huge \
     --checkpoints_root checkpoints/dam_sam_moe \
     --outputs_root outputs/dam_sam_moe \
     --splits $GAN_SPLITS
@@ -32,11 +33,11 @@ python3 scripts/evaluate_moe.py \
 # ── optional variants ─────────────────────────────────────────────────────────
 
 # Single configuration only (e.g. re-run just p1_i1):
-# python3 scripts/evaluate_moe.py --checkpoints_root checkpoints/dam_sam_moe --outputs_root outputs/dam_sam_moe --runs p2_i4 --splits gan-generated/test1 --save_images
+# python3 scripts/evaluate_moe.py --checkpoint_name facebook/sam-vit-huge --checkpoints_root checkpoints/dam_sam_moe --outputs_root outputs/dam_sam_moe --runs p2_i4 --splits gan-generated/test1 --save_images
 
 # Ranking-robustness check: default inference settings everywhere
 # (writes to outputs/dam_sam_moe_vanilla/):
-# python3 scripts/evaluate_moe.py --checkpoints_root checkpoints/dam_sam_moe --outputs_root outputs/dam_sam_moe --runs p2_i1 --splits $GAN_SPLITS
+# python3 scripts/evaluate_moe.py --checkpoint_name facebook/sam-vit-huge --checkpoints_root checkpoints/dam_sam_moe --outputs_root outputs/dam_sam_moe --runs p2_i1 --splits $GAN_SPLITS
 
 # Also save per-image panel figures (heavy — 8 runs x 5 splits):
 # add --save_images to the main command above.
