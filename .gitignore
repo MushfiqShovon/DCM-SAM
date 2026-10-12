@@ -31,8 +31,12 @@ scratch/
 # ---- internal engineering log: embeds absolute /home paths and job ids ----
 docs/quantization-study/
 
-# ---- generated docs: PDF/HTML carry the old DAM-SAM name and an institution line ----
-docs/
+# ---- docs/ is private except the project webpage served by GitHub Pages ----
+# (the generated PDF/HTML there carry the old DAM-SAM name and an institution line)
+docs/*
+!docs/index.html
+!docs/assets/
+!docs/.nojekyll
 
 # ---- the paper itself: never ship the submission with the code ----
 NeurIPS_Paper/
